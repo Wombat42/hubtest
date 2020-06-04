@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { hot } from 'react-hot-loader/root';
 import styled from 'styled-components';
-import { getPokemon } from './api/pokemon';
+import moment from 'moment';
+import { getCustomers, postCustomerAvailability } from './api/hubapi';
 
 const Main = styled.div`
   width: 60%;
@@ -57,6 +58,72 @@ function getKeyGenerator(prefix = 'key_') {
 }
 const nextKey = getKeyGenerator('eventLog');
 
+function processCountry(country, attendees) {
+  const availabilityDateMap = {};
+  attendees.forEach((attendee) => {
+    // filter dates: remove dates that are not contigous
+    const { email, availableDates } = attendee;
+
+    for (let index = 0; index < availableDates.length; index++) {
+      const date = availableDates[index];
+      const nextDate = availableDates[index + 1];
+
+      const day = moment(date);
+      const nextDay = moment(nextDate);
+      if (day.diff(nextDay, 'days') === -1) {
+        let possibleAttendees = availabilityDateMap[date];
+        if (!possibleAttendees) {
+          // eslint-disable-next-line no-multi-assign
+          possibleAttendees = availabilityDateMap[date] = [];
+        }
+        possibleAttendees.push(email);
+      }
+    }
+  });
+
+  const sortedList = Object.entries(availabilityDateMap).sort(
+    ([, aAttendees = []], [, bAttendees = []]) => {
+      let result = 0;
+      if (aAttendees.length > bAttendees.length) {
+        result = -1;
+      } else if (aAttendees.length > bAttendees.length) {
+        result = 1;
+      }
+      return result;
+    },
+  );
+  const [date, possibleAttendees] = sortedList[0];
+  return {
+    attendeeCount: possibleAttendees.length,
+    attendees: possibleAttendees,
+    name: country,
+    startDate: date || null,
+  };
+}
+
+function processCustomerData({ data }) {
+  const countryMap = {};
+  const { partners } = data;
+  partners.forEach((customer) => {
+    const { country } = customer;
+    let countryArray = countryMap[country];
+    if (!countryArray) {
+      // eslint-disable-next-line no-multi-assign
+      countryMap[country] = countryArray = [];
+    }
+    countryArray.push(customer);
+  });
+
+  const countries = [];
+  Object.entries(countryMap).forEach(([country, attendees]) => {
+    countries.push(processCountry(country, attendees));
+  });
+
+  return {
+    countries,
+  };
+}
+
 function App() {
   const [events, setEvents] = React.useState([]);
 
@@ -92,35 +159,60 @@ function App() {
     [log],
   );
 
-  const [pokeAPI, setPokeAPI] = React.useState('ready');
+  const [customerGETAPI, setCustomerGETAPI] = React.useState('ready');
 
   React.useEffect(() => {
-    if (pokeAPI === 'ready') {
-      log('about to run api');
-      setPokeAPI('running');
-      log('loading...');
-      getPokemon()
+    if (customerGETAPI === 'ready') {
+      log('About to run api');
+      setCustomerGETAPI('running');
+      log('Loading the data...');
+      getCustomers()
         .then((result) => {
-          setPokeAPI('done');
-          log('got a result');
+          setCustomerGETAPI('done');
+          log('API has returned');
           if (result.ok) {
-            log('returned with good data!');
+            log('The data is good!');
+            log('Starting to process the attendee data.');
+            const invitees = processCustomerData(result);
+            log('Done processing customer data');
+            log('Posting invitation list');
+            // Did not add separate state tracking for the post API
+            // But should.
+            postCustomerAvailability(invitees)
+              .then((postResult) => {
+                if (postResult.ok) {
+                  log('Post accepted!');
+                } else {
+                  error('Post was not accepted');
+                }
+              })
+              .catch((err) => {
+                error('Critical error occurred while posting');
+                // eslint-disable-next-line no-console
+                console.log(err);
+              });
           } else {
-            warning('returned with bad data');
+            error('Post failed with bad data');
           }
         })
         .catch((err) => {
-          setPokeAPI('error');
-          error(`Failed to get pokemon ${err}`);
+          // eslint-disable-next-line no-console
+          console.log(err);
+          setCustomerGETAPI('error');
+          error(`Failed to get API data`);
         });
     }
-  }, [pokeAPI, error, log, warning]);
+  }, [customerGETAPI, error, log, warning]);
 
   return (
     <>
       <Main>
         <Title>HubSpot Code Test</Title>
-        <Description> A short description goes here</Description>
+        <Description>
+          This is my take on the HubSpot coding challenge. Below is a
+          log of the important events while running the calls to the
+          two API.
+        </Description>
         <EventLog>
           {events.map((event) => (
             <div key={event.id}>{event}</div>
