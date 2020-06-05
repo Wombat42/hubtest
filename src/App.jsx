@@ -101,7 +101,7 @@ function processCountry(country, attendees) {
   };
 }
 
-function processCustomerData({ data }) {
+function processPartnerData({ data }) {
   const countryMap = {};
   const { partners } = data;
   partners.forEach((customer) => {
@@ -173,7 +173,7 @@ function App() {
           if (result.ok) {
             log('The data is good!');
             log('Starting to process the attendee data.');
-            const invitees = processCustomerData(result);
+            const invitees = processPartnerData(result);
             log('Done processing customer data');
             log('Posting invitation list');
             // Did not add separate state tracking for the post API
